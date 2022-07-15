@@ -10,7 +10,7 @@ import (
 
 type requestChannel func(
 	bldr ChannelBuilder,
-) (*amqp.Channel, *chan amqp.Confirmation)
+) (*amqp.Channel, *chan amqp.Confirmation, error)
 
 type channelContext struct {
 	bldr         ChannelBuilder
@@ -70,7 +70,7 @@ func (ctx *channelContext) refreshChannel() {
 	defer ctx.chnlMtx.Unlock()
 	ctx.lgr.Debug("refreshing channel...")
 	ctx.chnl.Close() // apparently safe to call this multiple times, so no hurt
-	ctx.chnl, ctx.confirmsChan = ctx.reqChannel(ctx.bldr)
+	ctx.chnl, ctx.confirmsChan, err := ctx.reqChannel(ctx.bldr)
 
 	ctx.initNewChannel()
 }
