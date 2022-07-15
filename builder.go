@@ -1,30 +1,37 @@
 package usago
 
+type exchangeOptions struct {
+	name       string
+	kind       string
+	durable    bool
+	autoDelete bool
+	internal   bool
+	noWait     bool
+	args       map[string]interface{}
+}
+
+type queueOptions struct {
+	name       string
+	durable    bool
+	autoDelete bool
+	exclusive  bool
+	noWait     bool
+	args       map[string]interface{}
+}
+
+type bindingOptions struct {
+	name     string
+	key      string
+	exchange string
+	noWait   bool
+	args     map[string]interface{}
+}
+
 type ChannelBuilder struct {
-	exchanges map[string]struct {
-		name       string
-		kind       string
-		autoDelete bool
-		internal   bool
-		noWait     bool
-		args       map[string]interface{}
-	}
-	queues map[string]struct {
-		name       string
-		durable    bool
-		autoDelete bool
-		exclusive  bool
-		noWait     bool
-		args       map[string]interface{}
-	}
-	bindings map[string]struct {
-		name     string
-		key      string
-		exchange string
-		noWait   bool
-		args     map[string]interface{}
-	}
-	confirms bool
+	exchanges map[string]exchangeOptions
+	queues    map[string]queueOptions
+	bindings  map[string]bindingOptions
+	confirms  bool
 }
 
 func (bldr *ChannelBuilder) WithExchange(
@@ -36,6 +43,15 @@ func (bldr *ChannelBuilder) WithExchange(
 	noWait bool,
 	args map[string]interface{},
 ) *ChannelBuilder {
+	bldr.exchanges[name] = exchangeOptions{
+		name:       name,
+		kind:       kind,
+		durable:    durable,
+		autoDelete: autoDelete,
+		internal:   internal,
+		noWait:     noWait,
+		args:       args,
+	}
 	return bldr
 }
 
@@ -47,6 +63,14 @@ func (bldr *ChannelBuilder) WithQueue(
 	noWait bool,
 	args map[string]interface{},
 ) *ChannelBuilder {
+	bldr.queues[name] = queueOptions{
+		name:       name,
+		durable:    durable,
+		autoDelete: autoDelete,
+		exclusive:  exclusive,
+		noWait:     noWait,
+		args:       args,
+	}
 	return bldr
 }
 
@@ -57,6 +81,13 @@ func (bldr *ChannelBuilder) WithBinding(
 	noWait bool,
 	args map[string]interface{},
 ) *ChannelBuilder {
+	bldr.bindings[name] = bindingOptions{
+		name:     name,
+		key:      key,
+		exchange: exchange,
+		noWait:   noWait,
+		args:     args,
+	}
 	return bldr
 }
 
