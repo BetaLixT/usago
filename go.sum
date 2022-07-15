@@ -1,3 +1,5 @@
+github.com/BetaLixT/go-resiliency v1.2.1 h1:Ba6K6f1DSZ2zcsxM85LJHHv95SPM7IvNnIMSk1KT/BY=
+github.com/BetaLixT/go-resiliency v1.2.1/go.mod h1:D+qnxM3Z0dPZw52f1Tlsq9GVbxV9YpttM+JPYsh3zJU=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

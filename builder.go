@@ -138,8 +138,8 @@ func (bldr *ChannelBuilder) Build(
 		)
 		// TODO: review what can go wrong here
 		if err != nil {
-		  return nil, nil, err
-		}	
+			return nil, nil, err
+		}
 	}
 	for _, q := range bldr.queues {
 		_, err := ch.QueueDeclare(
@@ -152,7 +152,7 @@ func (bldr *ChannelBuilder) Build(
 		)
 		// TODO: review what can go wrong here
 		if err != nil {
-		  return nil, nil, err
+			return nil, nil, err
 		}
 	}
 	for _, qb := range bldr.qbindings {
@@ -165,7 +165,7 @@ func (bldr *ChannelBuilder) Build(
 		)
 		// TODO: review what can go wrong here
 		if err != nil {
-		  return nil, nil, err
+			return nil, nil, err
 		}
 	}
 	for _, eb := range bldr.qbindings {
@@ -178,16 +178,18 @@ func (bldr *ChannelBuilder) Build(
 		)
 		// TODO: review what can go wrong here
 		if err != nil {
-		  return nil, nil, err
+			return nil, nil, err
 		}
 	}
 	if bldr.confirms {
-	  err := ch.Confirm(false)
-	  // TODO: review what can go wrong here
+		err := ch.Confirm(false)
+		// TODO: review what can go wrong here
 		if err != nil {
-		  return nil, nil, err
+			return nil, nil, err
 		}
-		ch.NotifyPublish()
-
+		cnfrms := make(chan amqp.Confirmation, 1)
+		ch.NotifyPublish(cnfrms)
+		return ch, &cnfrms, nil
 	}
+	return ch, nil, nil
 }
