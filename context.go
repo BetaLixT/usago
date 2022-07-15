@@ -2,7 +2,6 @@ package usago
 
 import (
 	"sync"
-	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/BetaLixT/go-resiliency/retrier"
@@ -13,7 +12,7 @@ type requestChannel func(
 	bldr ChannelBuilder,
 ) (*amqp.Channel, *chan amqp.Confirmation)
 
-type ChannelContext struct {
+type channelContext struct {
 	bldr         ChannelBuilder
 	chnl         *amqp.Channel
 	chnlMtx      sync.Mutex
@@ -35,7 +34,7 @@ after re-connection must be handed user
 Since the publish is tied to a channel, this function isn't to
 be considered as thread safe
 */
-func (ctx *ChannelContext) Publish(
+func (ctx *channelContext) Publish(
 	exchange string,
 	key string,
 	mandatory bool,
@@ -66,11 +65,17 @@ func (ctx *ChannelContext) Publish(
 	return sqno, nil
 }
 
-func (ctx *ChannelContext) refreshChannel() {
+func (ctx *channelContext) refreshChannel() {
 	ctx.chnlMtx.Lock()
+	defer ctx.chnlMtx.Unlock()
 	ctx.lgr.Debug("refreshing channel...")
 	ctx.chnl.Close() // apparently safe to call this multiple times, so no hurt
 	ctx.chnl, ctx.confirmsChan = ctx.reqChannel(ctx.bldr)
+
+	ctx.initNewChannel()
+}
+
+func (ctx *channelContext) initNewChannel() {
 	cls := make(chan *amqp.Error, 1)
 	ctx.closeChan = &cls
 
@@ -86,10 +91,9 @@ func (ctx *ChannelContext) refreshChannel() {
 			ctx.proxyConfirm(*ctx.confirmsChan)
 		}()	
 	}
-	ctx.chnlMtx.Unlock()
 }
 
-func (ctx *ChannelContext) proxyConfirm(channel chan amqp.Confirmation) {
+func (ctx *channelContext) proxyConfirm(channel chan amqp.Confirmation) {
 	active := true
 	var cnfrm amqp.Confirmation
 	for active {
@@ -98,7 +102,7 @@ func (ctx *ChannelContext) proxyConfirm(channel chan amqp.Confirmation) {
 	}
 }
 
-func (ctx *ChannelContext) closeHandler(channel chan *amqp.Error) {
+func (ctx *channelContext) closeHandler(channel chan *amqp.Error) {
 	_, _ = <- channel
 	if ctx.closing {
 		return
