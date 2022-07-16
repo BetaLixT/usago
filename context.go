@@ -203,7 +203,9 @@ func (ctx *channelContext) proxyConfirm(channel chan amqp.Confirmation) {
 	var cnfrm amqp.Confirmation
 	for active {
 		cnfrm, active = <-channel
-		ctx.confirmsProx <- cnfrm
+		if active {
+			ctx.confirmsProx <- cnfrm
+		}
 	}
 }
 
