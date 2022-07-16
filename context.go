@@ -97,6 +97,7 @@ func (ctx *channelContext) refreshChannel() error {
 
 func (ctx *channelContext) initNewChannel() {
 	cls := make(chan *amqp.Error, 1)
+	ctx.chnl.NotifyClose(cls)
 	ctx.closeChan = &cls
 
 	ctx.workerWg.Add(1)

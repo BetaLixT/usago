@@ -96,6 +96,7 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 		return err
 	}
 	closeChan := make(chan *amqp.Error)
+  mngr.connectionPool[id].NotifyClose(closeChan)
 	mngr.closeChannels[id] = &closeChan
 	mngr.closewg.Add(1)
 	go func() {
