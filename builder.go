@@ -1,8 +1,6 @@
 package usago
 
 import (
-	"fmt"
-
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -155,7 +153,7 @@ func (bldr *ChannelBuilder) Build(
 		}
 	}
 	for _, q := range bldr.queues {
-		nq, err := ch.QueueDeclare(
+		_, err := ch.QueueDeclare(
 			q.name,
 			q.durable,
 			q.autoDelete,
@@ -167,7 +165,6 @@ func (bldr *ChannelBuilder) Build(
 		if err != nil {
 			return nil, nil, err
 		}
-		fmt.Println(nq.Name)
 	}
 	for _, qb := range bldr.qbindings {
 		err := ch.QueueBind(
