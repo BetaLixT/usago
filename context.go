@@ -3,8 +3,8 @@ package usago
 import (
 	"sync"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/BetaLixT/go-resiliency/retrier"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
 
@@ -23,6 +23,7 @@ type channelContext struct {
 	closeChan    *chan *amqp.Error
 	workerWg     sync.WaitGroup
 	closing      bool
+	borked       bool
 	pubRetr      retrier.Retrier 
 }
 
@@ -41,6 +42,12 @@ func (ctx *channelContext) Publish(
 	immediate bool,
 	msg amqp.Publishing,
 ) (uint64, error) {
+	if ctx.closing {
+		return 0, NewChannelClosedError()
+	}
+	if ctx.borked {
+		return 0, NewChannelConnectionFailureError()
+	}
 	sqno := uint64(0)	
 	err := ctx.pubRetr.Run(func() error {
 		ctx.chnlMtx.Lock()
@@ -65,14 +72,18 @@ func (ctx *channelContext) Publish(
 	return sqno, nil
 }
 
-func (ctx *channelContext) refreshChannel() {
+func (ctx *channelContext) refreshChannel() error {
 	ctx.chnlMtx.Lock()
-	defer ctx.chnlMtx.Unlock()
-	ctx.lgr.Debug("refreshing channel...")
-	ctx.chnl.Close() // apparently safe to call this multiple times, so no hurt
-	ctx.chnl, ctx.confirmsChan, err := ctx.reqChannel(ctx.bldr)
-
+	defer ctx.chnlMtx.Unlock()	
+	ctx.chnl.Close() // apparently safe to call this multiple times, so no hurt	
+	newchannel, newconfirms, err := ctx.reqChannel(ctx.bldr)
+	if err != nil {
+		return err
+	}
+	ctx.chnl = newchannel
+	ctx.confirmsChan = newconfirms
 	ctx.initNewChannel()
+	return nil
 }
 
 func (ctx *channelContext) initNewChannel() {
@@ -93,6 +104,12 @@ func (ctx *channelContext) initNewChannel() {
 	}
 }
 
+func (ctx *channelContext) close() {
+	ctx.closing = true
+	ctx.chnl.Close()
+	ctx.workerWg.Wait()
+}
+
 func (ctx *channelContext) proxyConfirm(channel chan amqp.Confirmation) {
 	active := true
 	var cnfrm amqp.Confirmation
@@ -107,5 +124,12 @@ func (ctx *channelContext) closeHandler(channel chan *amqp.Error) {
 	if ctx.closing {
 		return
 	}
-	ctx.refreshChannel()
+	err := ctx.refreshChannel()
+	if err != nil {
+		ctx.lgr.Error(
+			"channel has fatally failed",
+			zap.Error(err),
+		)
+		ctx.borked = true
+	}
 }
