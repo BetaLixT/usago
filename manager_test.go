@@ -11,52 +11,54 @@ import (
 
 func TestNewChannelManager(t *testing.T) {
 	lgr, _ := zap.NewDevelopment()
-	_ = NewChannelManager(
+	mngr := NewChannelManager(
 		"amqp://guest:guest@localhost:5672/",
 		lgr,
 	)
+	mngr.Close()
 }
 
 func TestPublishSimple(t *testing.T) {
-	// lgr, _ := zap.NewDevelopment()
-	// manager := NewChannelManager(
-	// 	"amqp://guest:guest@localhost:5672/",
-	// 	lgr,
-	// )
-	//
-	// bldr := NewChannelBuilder().WithQueue(
-	// 	"hello",
-	// 	false,
-	// 	false,
-	// 	false,
-	// 	false,
-	// 	nil,
-	// )
-	// chnl, err := manager.NewChannel(*bldr)
-	// if err != nil {
-	// 	lgr.Error(
-	// 		"failed to create channel",
-	// 		zap.Error(err),
-	// 	)
-	// }
-	// body := "Hello World!"
-	// _, err = chnl.Publish(
-	// 	"",
-	// 	"hello",
-	// 	false, // mandatory
-	// 	false, // immediate
-	// 	amqp.Publishing{
-	// 		ContentType: "text/plain",
-	// 		Body:        []byte(body),
-	// 	},
-	// )
-	// if err != nil {
-	// 	lgr.Error(
-	// 		"failed to create channel",
-	// 		zap.Error(err),
-	// 	)
-	// 	t.FailNow()
-	// }
+	lgr, _ := zap.NewDevelopment()
+	manager := NewChannelManager(
+		"amqp://guest:guest@localhost:5672/",
+		lgr,
+	)
+
+	bldr := NewChannelBuilder().WithQueue(
+		"hello",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	chnl, err := manager.NewChannel(*bldr)
+	if err != nil {
+		lgr.Error(
+			"failed to create channel",
+			zap.Error(err),
+		)
+	}
+	body := "Hello World!"
+	_, err = chnl.Publish(
+		"",
+		"hello",
+		false, // mandatory
+		false, // immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(body),
+		},
+	)
+	if err != nil {
+		lgr.Error(
+			"failed to create channel",
+			zap.Error(err),
+		)
+		t.FailNow()
+	}
+	manager.Close()
 }
 
 func TestPublishAck(t *testing.T) {
@@ -136,6 +138,7 @@ func TestPublishAck(t *testing.T) {
 			zap.Int("messageCount", messageCount),
 		)
 	}
+	manager.Close()
 }
 
 func TestDelayedPub(t *testing.T) {
@@ -161,7 +164,7 @@ func TestDelayedPub(t *testing.T) {
 		)
 		t.FailNow()
 	}
-	messageCount := 10
+	messageCount := 2
 	cnfrms, err := chnl.GetConfirmsChannel()
 	if err != nil {
 		lgr.Error(
