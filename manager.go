@@ -198,6 +198,7 @@ func (mngr *ChannelManager) NewChannel(
 		),
 			retrier.DefaultClassifier{},
 		),
+		consumers: map[string]*consumerContext{},
 	}
 	ctx.initNewChannel()
 	mngr.channelPool = append(mngr.channelPool, &ctx)

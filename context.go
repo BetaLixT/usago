@@ -24,7 +24,8 @@ type channelContext struct {
 	workerWg     sync.WaitGroup
 	closing      bool
 	borked       bool
-	pubRetr      retrier.Retrier 
+	pubRetr      retrier.Retrier
+	consumers    map[string]*consumerContext
 }
 
 /*
@@ -48,7 +49,7 @@ func (ctx *channelContext) Publish(
 	if ctx.borked {
 		return 0, NewChannelConnectionFailureError()
 	}
-	sqno := uint64(0)	
+	sqno := uint64(0)
 	err := ctx.pubRetr.Run(func() error {
 		ctx.chnlMtx.Lock()
 		defer ctx.chnlMtx.Unlock()
@@ -64,27 +65,87 @@ func (ctx *channelContext) Publish(
 			return err
 		}
 		return nil
-	})	
+	})
 	if err != nil {
-		// caller must handle re-queuing of messages	
+		// caller must handle re-queuing of messages
 		return 0, err
 	}
 	return sqno, nil
 }
 
-func (ctx *channelContext) GetConfirmsChannel(
-
-) (chan amqp.Confirmation, error) {
+func (ctx *channelContext) GetConfirmsChannel() (chan amqp.Confirmation, error) {
 	if ctx.confirmsChan != nil {
 		return ctx.confirmsProx, nil
 	}
 	return ctx.confirmsProx, NewNoConfirmsError()
 }
 
+func (ctx *channelContext) RegisterConsumer(
+	queue,
+	consumer string,
+	autoAck,
+	exclusive,
+	noLocal,
+	noWait bool,
+	args map[string]interface{},
+) (chan amqp.Delivery, error) {
+	val, exists := ctx.consumers[consumer]
+	if exists {
+		return val.msgChan, nil
+	}
+	cnsmr := consumerContext{
+		queue:     queue,
+		consumer:  consumer,
+		autoAck:   autoAck,
+		exclusive: exclusive,
+		noLocal:   noLocal,
+		noWait:    noWait,
+		args:      args,
+		msgChan:   make(chan amqp.Delivery, 10),
+	}
+	err := ctx.initializeConsumer(&cnsmr)
+	if err != nil {
+		return cnsmr.msgChan, err
+	}
+	ctx.consumers[consumer] = &cnsmr
+	return cnsmr.msgChan, nil
+}
+
+func (ctx *channelContext) initializeConsumer(consCtx *consumerContext) error {
+	var cons <- chan amqp.Delivery
+	var err error
+	err = ctx.pubRetr.Run(func() error {
+		ctx.chnlMtx.Lock()
+		defer ctx.chnlMtx.Unlock()
+		cons, err = ctx.chnl.Consume(
+			consCtx.queue,
+			consCtx.consumer,
+			consCtx.autoAck,
+			consCtx.exclusive,
+			consCtx.noLocal,
+			consCtx.noWait,
+			consCtx.args,
+		)
+		return err
+	})
+	if err != nil {
+		// caller must handle re-queuing of messages
+		return err
+	}
+	ctx.workerWg.Add(1)
+	go func() {
+		defer ctx.workerWg.Done()
+		for msg := range cons {
+			consCtx.msgChan <- msg
+		}
+	}()
+	return nil
+}
+
 func (ctx *channelContext) refreshChannel() error {
 	ctx.chnlMtx.Lock()
-	defer ctx.chnlMtx.Unlock()	
-	ctx.chnl.Close() // apparently safe to call this multiple times, so no hurt	
+	defer ctx.chnlMtx.Unlock()
+	ctx.chnl.Close() // apparently safe to call this multiple times, so no hurt
 	newchannel, newconfirms, err := ctx.reqChannel(ctx.bldr)
 	if err != nil {
 		return err
@@ -92,6 +153,9 @@ func (ctx *channelContext) refreshChannel() error {
 	ctx.chnl = newchannel
 	ctx.confirmsChan = newconfirms
 	ctx.initNewChannel()
+	for _, cnsmrs := range ctx.consumers {
+		ctx.initializeConsumer(cnsmrs)
+	}
 	return nil
 }
 
@@ -110,13 +174,17 @@ func (ctx *channelContext) initNewChannel() {
 		go func() {
 			defer ctx.workerWg.Done()
 			ctx.proxyConfirm(*ctx.confirmsChan)
-		}()	
+		}()
 	}
 }
 
 func (ctx *channelContext) close() {
 	ctx.closing = true
 	ctx.chnl.Close()
+	close(ctx.confirmsProx)
+	for _, cnsmr := range ctx.consumers {
+		close(cnsmr.msgChan)
+	}
 	ctx.workerWg.Wait()
 }
 
@@ -130,7 +198,7 @@ func (ctx *channelContext) proxyConfirm(channel chan amqp.Confirmation) {
 }
 
 func (ctx *channelContext) closeHandler(channel chan *amqp.Error) {
-	_, _ = <- channel
+	_, _ = <-channel
 	if ctx.closing {
 		return
 	}
@@ -142,4 +210,15 @@ func (ctx *channelContext) closeHandler(channel chan *amqp.Error) {
 		)
 		ctx.borked = true
 	}
+}
+
+type consumerContext struct {
+	queue     string
+	consumer  string
+	autoAck   bool
+	exclusive bool
+	noLocal   bool
+	noWait    bool
+	args      map[string]interface{}
+	msgChan   chan amqp.Delivery
 }
