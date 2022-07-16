@@ -112,7 +112,7 @@ func (ctx *channelContext) RegisterConsumer(
 }
 
 func (ctx *channelContext) initializeConsumer(consCtx *consumerContext) error {
-	var cons <- chan amqp.Delivery
+	var cons <-chan amqp.Delivery
 	var err error
 	err = ctx.pubRetr.Run(func() error {
 		ctx.chnlMtx.Lock()
@@ -126,6 +126,12 @@ func (ctx *channelContext) initializeConsumer(consCtx *consumerContext) error {
 			consCtx.noWait,
 			consCtx.args,
 		)
+		if err != nil {
+			ctx.lgr.Warn(
+				"Failed to initialize consumer",
+				zap.Error(err),
+			)
+		}
 		return err
 	})
 	if err != nil {
@@ -153,9 +159,6 @@ func (ctx *channelContext) refreshChannel() error {
 	ctx.chnl = newchannel
 	ctx.confirmsChan = newconfirms
 	ctx.initNewChannel()
-	for _, cnsmrs := range ctx.consumers {
-		ctx.initializeConsumer(cnsmrs)
-	}
 	return nil
 }
 
@@ -209,6 +212,18 @@ func (ctx *channelContext) closeHandler(channel chan *amqp.Error) {
 			zap.Error(err),
 		)
 		ctx.borked = true
+	} else {
+		for key, cnsmr := range ctx.consumers {
+			err := ctx.initializeConsumer(cnsmr)
+			if err != nil {
+				ctx.lgr.Error(
+					"Failed to initialize consumer",
+					zap.Error(err),
+				)
+				close(cnsmr.msgChan)
+				delete(ctx.consumers, key)
+			}
+		}
 	}
 }
 
