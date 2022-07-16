@@ -38,14 +38,17 @@ func NewChannelManager(
 		channelPool:    []*channelContext{},
 		logger:         lgr,
 		connRetry: *retrier.New(retrier.ExponentialBackoff(
-			100,
+			15,
 			100*time.Millisecond,
 		),
 			retrier.DefaultClassifier{},
 		),
 	}
 	for i := 0; i < connectionCount; i++ {
-		mngr.establishConnection(i)
+		err := mngr.establishConnection(i)
+		if err != nil {
+			panic(err)
+		}
 	}
 	return mngr
 }
@@ -195,6 +198,7 @@ func (mngr *ChannelManager) NewChannel(
 			retrier.DefaultClassifier{},
 		),
 	}
+	ctx.initNewChannel()
 	mngr.channelPool = append(mngr.channelPool, &ctx)
 	return &ctx, nil
 }

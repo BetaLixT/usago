@@ -72,6 +72,15 @@ func (ctx *channelContext) Publish(
 	return sqno, nil
 }
 
+func (ctx *channelContext) GetConfirmsChannel(
+
+) (chan amqp.Confirmation, error) {
+	if ctx.confirmsChan != nil {
+		return ctx.confirmsProx, nil
+	}
+	return ctx.confirmsProx, NewNoConfirmsError()
+}
+
 func (ctx *channelContext) refreshChannel() error {
 	ctx.chnlMtx.Lock()
 	defer ctx.chnlMtx.Unlock()	

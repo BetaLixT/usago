@@ -1,6 +1,10 @@
 package usago
 
-import amqp "github.com/rabbitmq/amqp091-go"
+import (
+	"fmt"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
 
 type exchangeOptions struct {
 	name       string
@@ -35,6 +39,15 @@ type ChannelBuilder struct {
 	qbindings []bindingOptions
 	ebindings []bindingOptions
 	confirms  bool
+}
+
+func NewChannelBuilder() *ChannelBuilder {
+	return &ChannelBuilder{
+		exchanges: map[string]exchangeOptions{},
+		queues:    map[string]queueOptions{},
+		qbindings: []bindingOptions{},
+		ebindings: []bindingOptions{},
+	}
 }
 
 func (bldr *ChannelBuilder) WithExchange(
@@ -142,7 +155,7 @@ func (bldr *ChannelBuilder) Build(
 		}
 	}
 	for _, q := range bldr.queues {
-		_, err := ch.QueueDeclare(
+		nq, err := ch.QueueDeclare(
 			q.name,
 			q.durable,
 			q.autoDelete,
@@ -154,6 +167,7 @@ func (bldr *ChannelBuilder) Build(
 		if err != nil {
 			return nil, nil, err
 		}
+		fmt.Println(nq.Name)
 	}
 	for _, qb := range bldr.qbindings {
 		err := ch.QueueBind(

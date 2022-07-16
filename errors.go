@@ -28,3 +28,10 @@ func NewChannelConnectionFailureError() *Error {
     message: "connection has failed to establish",
   }
 }
+
+func NewNoConfirmsError() *Error {
+  return &Error{
+    id: 1002,
+    message: "confirms is not enabled",
+  }
+}
