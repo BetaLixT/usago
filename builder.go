@@ -179,7 +179,7 @@ func (bldr *ChannelBuilder) Build(
 			return nil, nil, err
 		}
 	}
-	for _, eb := range bldr.qbindings {
+	for _, eb := range bldr.ebindings {
 		err := ch.ExchangeBind(
 			eb.dest,
 			eb.key,
