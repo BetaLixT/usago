@@ -16,7 +16,7 @@ type ChannelManager struct {
 	connectionMtxs []sync.Mutex
 	nxtaccesscMtxs []sync.Mutex
 	lowprirtycMtxs []sync.Mutex
-	channelPool    []*channelContext
+	channelPool    []*ChannelContext
 	logger         *zap.Logger
 	connRetry      retrier.Retrier
 	closewg        sync.WaitGroup
@@ -36,7 +36,7 @@ func NewChannelManager(
 		connectionMtxs: make([]sync.Mutex, connectionCount),
 		nxtaccesscMtxs: make([]sync.Mutex, connectionCount),
 		lowprirtycMtxs: make([]sync.Mutex, connectionCount),
-		channelPool:    []*channelContext{},
+		channelPool:    []*ChannelContext{},
 		logger:         lgr,
 		connRetry: *retrier.New(retrier.ExponentialBackoff(
 			15,
@@ -138,7 +138,7 @@ func (mngr *ChannelManager) closeHandler(
 
 func (mngr *ChannelManager) NewChannel(
 	bldr ChannelBuilder,
-) (*channelContext, error) {
+) (*ChannelContext, error) {
 	// TODO: no connection scenario
 	if mngr.borked {
 		return nil, NewChannelConnectionFailureError()
@@ -207,7 +207,7 @@ func (mngr *ChannelManager) NewChannel(
 		return newChannel, newConfirm, nil
 	}
 
-	ctx := channelContext{
+	ctx := ChannelContext{
 		bldr:         bldr,
 		chnl:         chnl,
 		lgr:          mngr.logger,

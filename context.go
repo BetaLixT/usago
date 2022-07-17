@@ -12,7 +12,7 @@ type requestChannel func(
 	bldr ChannelBuilder,
 ) (*amqp.Channel, *chan amqp.Confirmation, error)
 
-type channelContext struct {
+type ChannelContext struct {
 	bldr         ChannelBuilder
 	chnl         *amqp.Channel
 	chnlMtx      sync.Mutex
@@ -36,7 +36,7 @@ after re-connection must be handed user
 Since the publish is tied to a channel, this function isn't to
 be considered as thread safe
 */
-func (ctx *channelContext) Publish(
+func (ctx *ChannelContext) Publish(
 	exchange string,
 	key string,
 	mandatory bool,
@@ -73,14 +73,14 @@ func (ctx *channelContext) Publish(
 	return sqno, nil
 }
 
-func (ctx *channelContext) GetConfirmsChannel() (chan amqp.Confirmation, error) {
+func (ctx *ChannelContext) GetConfirmsChannel() (chan amqp.Confirmation, error) {
 	if ctx.confirmsChan != nil {
 		return ctx.confirmsProx, nil
 	}
 	return ctx.confirmsProx, NewNoConfirmsError()
 }
 
-func (ctx *channelContext) RegisterConsumer(
+func (ctx *ChannelContext) RegisterConsumer(
 	queue,
 	consumer string,
 	autoAck,
@@ -111,7 +111,7 @@ func (ctx *channelContext) RegisterConsumer(
 	return cnsmr.msgChan, nil
 }
 
-func (ctx *channelContext) initializeConsumer(consCtx *consumerContext) error {
+func (ctx *ChannelContext) initializeConsumer(consCtx *consumerContext) error {
 	var cons <-chan amqp.Delivery
 	var err error
 	err = ctx.pubRetr.Run(func() error {
@@ -155,7 +155,7 @@ func (ctx *channelContext) initializeConsumer(consCtx *consumerContext) error {
 	return nil
 }
 
-func (ctx *channelContext) refreshChannel() error {
+func (ctx *ChannelContext) refreshChannel() error {
 	ctx.chnlMtx.Lock()
 	defer ctx.chnlMtx.Unlock()
 	ctx.chnl.Close() // apparently safe to call this multiple times, so no hurt
@@ -169,7 +169,7 @@ func (ctx *channelContext) refreshChannel() error {
 	return nil
 }
 
-func (ctx *channelContext) initNewChannel() {
+func (ctx *ChannelContext) initNewChannel() {
 	cls := make(chan *amqp.Error, 1)
 	ctx.chnl.NotifyClose(cls)
 	ctx.closeChan = &cls
@@ -188,7 +188,7 @@ func (ctx *channelContext) initNewChannel() {
 	}
 }
 
-func (ctx *channelContext) close() {
+func (ctx *ChannelContext) close() {
 	ctx.closing = true
 	ctx.chnl.Close()
 	close(ctx.confirmsProx)
@@ -198,7 +198,7 @@ func (ctx *channelContext) close() {
 	ctx.workerWg.Wait()
 }
 
-func (ctx *channelContext) proxyConfirm(channel chan amqp.Confirmation) {
+func (ctx *ChannelContext) proxyConfirm(channel chan amqp.Confirmation) {
 	active := true
 	var cnfrm amqp.Confirmation
 	for active {
@@ -209,7 +209,7 @@ func (ctx *channelContext) proxyConfirm(channel chan amqp.Confirmation) {
 	}
 }
 
-func (ctx *channelContext) closeHandler(channel chan *amqp.Error) {
+func (ctx *ChannelContext) closeHandler(channel chan *amqp.Error) {
 	_, _ = <-channel
 	if ctx.closing {
 		return
