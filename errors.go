@@ -35,3 +35,10 @@ func NewNoConfirmsError() *Error {
     message: "confirms is not enabled",
   }
 }
+
+func NewConnectionMissingError() *Error {
+  return &Error{
+    id: 1003,
+    message: "connection missing",
+  }
+}

@@ -67,7 +67,14 @@ func (mngr *ChannelManager) getConnection(id int) (*amqp.Connection, error) {
 	mngr.nxtaccesscMtxs[id].Unlock()
 	defer mngr.connectionMtxs[id].Unlock()
 	defer mngr.lowprirtycMtxs[id].Unlock()
-	return mngr.connectionPool[id], nil
+	if id > len(mngr.connectionPool) {
+		return nil, NewConnectionMissingError()
+	}
+	conn := mngr.connectionPool[id]
+	if conn == nil {
+		return nil, NewConnectionMissingError()
+	}
+	return conn, nil
 }
 
 func (mngr *ChannelManager) establishConnection(id int) error {
@@ -127,6 +134,7 @@ func (mngr *ChannelManager) closeHandler(
 func (mngr *ChannelManager) NewChannel(
 	bldr ChannelBuilder,
 ) (*channelContext, error) {
+	// TODO: no connection scenario
 	id, err := mngr.requestConnectionId()
 	if err != nil {
 		return nil, err
