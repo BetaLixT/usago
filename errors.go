@@ -42,3 +42,10 @@ func NewConnectionMissingError() *Error {
     message: "connection missing",
   }
 }
+
+func NewChannelMissingError() *Error {
+  return &Error{
+    id: 1004,
+    message: "channel missing",
+  }
+}

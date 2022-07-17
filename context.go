@@ -13,6 +13,7 @@ type requestChannel func(
 ) (*amqp.Channel, *chan amqp.Confirmation, error)
 
 type ChannelContext struct {
+	id           int
 	bldr         ChannelBuilder
 	chnl         *amqp.Channel
 	chnlMtx      sync.Mutex

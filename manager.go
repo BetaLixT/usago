@@ -16,12 +16,15 @@ type ChannelManager struct {
 	connectionMtxs []sync.Mutex
 	nxtaccesscMtxs []sync.Mutex
 	lowprirtycMtxs []sync.Mutex
-	channelPool    []*ChannelContext
+	channelPool    map[int]*ChannelContext
 	logger         *zap.Logger
 	connRetry      retrier.Retrier
 	closewg        sync.WaitGroup
 	closing        bool
 	borked         bool
+	channelSq      int
+	channelSqMtx   sync.Mutex
+	channelClsMtx  sync.Mutex
 }
 
 func NewChannelManager(
@@ -36,7 +39,7 @@ func NewChannelManager(
 		connectionMtxs: make([]sync.Mutex, connectionCount),
 		nxtaccesscMtxs: make([]sync.Mutex, connectionCount),
 		lowprirtycMtxs: make([]sync.Mutex, connectionCount),
-		channelPool:    []*ChannelContext{},
+		channelPool:    map[int]*ChannelContext{},
 		logger:         lgr,
 		connRetry: *retrier.New(retrier.ExponentialBackoff(
 			15,
@@ -44,6 +47,7 @@ func NewChannelManager(
 		),
 			retrier.DefaultClassifier{},
 		),
+		channelSq: -1,
 	}
 	for i := 0; i < connectionCount; i++ {
 		err := mngr.establishConnection(i)
@@ -104,7 +108,7 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 		return err
 	}
 	closeChan := make(chan *amqp.Error)
-  mngr.connectionPool[id].NotifyClose(closeChan)
+	mngr.connectionPool[id].NotifyClose(closeChan)
 	mngr.closeChannels[id] = &closeChan
 	mngr.closewg.Add(1)
 	go func() {
@@ -206,8 +210,9 @@ func (mngr *ChannelManager) NewChannel(
 		}
 		return newChannel, newConfirm, nil
 	}
-
+  
 	ctx := ChannelContext{
+		id:           mngr.getNextChannelId(),
 		bldr:         bldr,
 		chnl:         chnl,
 		lgr:          mngr.logger,
@@ -225,19 +230,32 @@ func (mngr *ChannelManager) NewChannel(
 		consumers: map[string]*consumerContext{},
 	}
 	ctx.initNewChannel()
-	mngr.channelPool = append(mngr.channelPool, &ctx)
+	mngr.channelPool[ctx.id] = &ctx
 	return &ctx, nil
 }
 
 func (mngr *ChannelManager) Close() {
+	mngr.channelClsMtx.Lock()
 	mngr.closing = true
 	for _, ch := range mngr.channelPool {
 		ch.close()
 	}
+	mngr.channelClsMtx.Unlock()
 	for _, conn := range mngr.connectionPool {
 		conn.Close()
 	}
 	mngr.closewg.Wait()
+}
+
+func (mngr *ChannelManager) Discard(ctxi *ChannelContext) error {
+	mngr.channelClsMtx.Lock()
+	defer mngr.channelClsMtx.Unlock()
+	if ctx, exists := mngr.channelPool[ctxi.id]; exists {
+		ctx.close()
+		delete(mngr.channelPool, ctx.id)
+		return nil
+	}
+	return NewChannelMissingError()
 }
 
 /*
@@ -252,4 +270,11 @@ func (mngr *ChannelManager) Status() *Error {
 		return NewChannelClosedError()
 	}
 	return nil
+}
+
+func (mngr *ChannelManager) getNextChannelId() int {
+	mngr.channelSqMtx.Lock()
+	defer mngr.channelSqMtx.Unlock()
+	mngr.channelSq++
+	return mngr.channelSq
 }
