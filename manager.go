@@ -21,6 +21,7 @@ type ChannelManager struct {
 	connRetry      retrier.Retrier
 	closewg        sync.WaitGroup
 	closing        bool
+	borked         bool
 }
 
 func NewChannelManager(
@@ -127,7 +128,11 @@ func (mngr *ChannelManager) closeHandler(
 		mngr.logger.Debug("connection closed gracefully")
 	}
 	if !mngr.closing {
-		mngr.establishConnection(id)
+		err := mngr.establishConnection(id)
+		if err != nil {
+			mngr.borked = true
+			mngr.Close()
+		}
 	}
 }
 
@@ -135,6 +140,12 @@ func (mngr *ChannelManager) NewChannel(
 	bldr ChannelBuilder,
 ) (*channelContext, error) {
 	// TODO: no connection scenario
+	if mngr.borked {
+		return nil, NewChannelConnectionFailureError()
+	}
+	if mngr.closing {
+		return nil, NewChannelClosedError()
+	}
 	id, err := mngr.requestConnectionId()
 	if err != nil {
 		return nil, err
@@ -155,7 +166,12 @@ func (mngr *ChannelManager) NewChannel(
 		*chan amqp.Confirmation,
 		error,
 	) {
-
+		if mngr.borked {
+			return nil, nil, NewChannelConnectionFailureError()
+		}
+		if mngr.closing {
+			return nil, nil, NewChannelClosedError()
+		}
 		var newChannel *amqp.Channel
 		var newConfirm *chan amqp.Confirmation
 		err := mngr.connRetry.Run(
@@ -222,4 +238,18 @@ func (mngr *ChannelManager) Close() {
 		conn.Close()
 	}
 	mngr.closewg.Wait()
+}
+
+/*
+Returns usago.Error with id of 1000 for closed or 1001 for failed manager
+nil returned if there are no issues
+*/
+func (mngr *ChannelManager) Status() *Error {
+	if mngr.borked {
+		return NewChannelConnectionFailureError()
+	}
+	if mngr.closing {
+		return NewChannelClosedError()
+	}
+	return nil
 }

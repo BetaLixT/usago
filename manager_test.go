@@ -280,7 +280,7 @@ func TestDelayedPub(t *testing.T) {
 		)
 		t.FailNow()
 	}
-	messageCount := 2
+	messageCount := 10
 	cnfrms, err := chnl.GetConfirmsChannel()
 	if err != nil {
 		lgr.Error(
