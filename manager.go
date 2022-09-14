@@ -83,12 +83,13 @@ func (mngr *ChannelManager) getConnection(id int) (*amqp.Connection, error) {
 }
 
 func (mngr *ChannelManager) establishConnection(id int) error {
+	mngr.logger.Info("about to establish connection...")
 	mngr.nxtaccesscMtxs[id].Lock()
 	mngr.connectionMtxs[id].Lock()
 	mngr.nxtaccesscMtxs[id].Unlock()
 	defer mngr.connectionMtxs[id].Unlock()
 	err := mngr.connRetry.Run(func() error {
-		mngr.logger.Debug("establishing connection...")
+		mngr.logger.Info("establishing connection...")
 		conn, err := amqp.Dial(mngr.url)
 		if err != nil {
 			mngr.logger.Warn(
@@ -129,7 +130,7 @@ func (mngr *ChannelManager) closeHandler(
 			zap.Error(err),
 		)
 	} else {
-		mngr.logger.Debug("connection closed gracefully")
+		mngr.logger.Info("connection closed gracefully")
 	}
 	if !mngr.closing {
 		err := mngr.establishConnection(id)
@@ -137,6 +138,11 @@ func (mngr *ChannelManager) closeHandler(
 			mngr.borked = true
 			mngr.Close()
 		}
+	} else {
+		mngr.logger.Warn(
+			"manager closing, connection will not be restablished",
+			zap.Error(err),
+		)
 	}
 }
 
@@ -180,7 +186,7 @@ func (mngr *ChannelManager) NewChannel(
 		var newConfirm *chan amqp.Confirmation
 		err := mngr.connRetry.Run(
 			func() error {
-				mngr.logger.Debug("refreshing channel...")
+				mngr.logger.Info("refreshing channel...")
 				conn, err := mngr.getConnection(id)
 				if err != nil {
 					mngr.logger.Warn(
