@@ -3,7 +3,8 @@ package usago
 import (
 	"sync"
 	"testing"
-	"time"
+
+	// "time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
@@ -177,7 +178,7 @@ func TestConsumer(t *testing.T) {
 	}
 
 	wg := sync.WaitGroup{}
-	
+
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -207,7 +208,7 @@ func TestConsumer(t *testing.T) {
 		)
 		t.FailNow()
 	}
-	go func () {
+	go func() {
 		defer wg.Done()
 
 		for i := 0; i < messageCount; i++ {
@@ -308,7 +309,7 @@ func TestDelayedPub(t *testing.T) {
 
 	body := "Hello World!"
 	for i := 0; i < messageCount; i++ {
-		time.Sleep(5 * time.Second)
+		// time.Sleep(5 * time.Second)
 		lgr.Info("publishing...")
 		_, err = chnl.Publish(
 			"",
@@ -342,3 +343,259 @@ func TestDelayedPub(t *testing.T) {
 		)
 	}
 }
+
+func TestConsumerServerQueue(t *testing.T) {
+	lgr, _ := zap.NewDevelopment()
+	manager := NewChannelManager(
+		"amqp://guest:guest@localhost:5672/",
+		lgr,
+	)
+
+	bldr := NewChannelBuilder().WithExchange(
+		"textex2",
+		"topic",
+		true,
+		true,
+		false,
+		false,
+		map[string]interface{}{},
+	).WithServerNamedQueue(
+		"internal",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	).WithServerNamedQueueBinding(
+		"internal",
+		"#",
+		"textex2",
+		false,
+		nil,
+	).WithConfirms(true)
+	chnl, err := manager.NewChannel(*bldr)
+	if err != nil {
+		lgr.Error(
+			"failed to create channel",
+			zap.Error(err),
+		)
+		t.FailNow()
+	}
+	messageCount := 10
+	cnfrms, err := chnl.GetConfirmsChannel()
+	if err != nil {
+		lgr.Error(
+			"failed to get confirms channel",
+			zap.Error(err),
+		)
+		t.FailNow()
+	}
+
+	wg := sync.WaitGroup{}
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < messageCount; i++ {
+			ack := <-cnfrms
+			lgr.Info("confirm recieved")
+			if ack.Ack {
+			} else {
+				lgr.Error("failed delivery")
+			}
+		}
+	}()
+	count := 0
+	consumer, err := chnl.RegisterConsumerServerNamedQueue(
+		"internal",
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		lgr.Error(
+			"failed to register consumer",
+			zap.Error(err),
+		)
+		t.FailNow()
+	}
+	go func() {
+		defer wg.Done()
+
+		for i := 0; i < messageCount; i++ {
+			msg := <-consumer
+			lgr.Info(
+				"message read",
+				zap.String("body", string(msg.Body)),
+			)
+			count++
+		}
+	}()
+
+	body := "Hello World!"
+	for i := 0; i < messageCount; i++ {
+		lgr.Info("publishing...")
+		_, err = chnl.Publish(
+			"textex2",
+			"test",
+			false, // mandatory
+			false, // immediate
+			amqp.Publishing{
+				ContentType: "text/plain",
+				Body:        []byte(body),
+			},
+		)
+		for err != nil {
+			_, err = chnl.Publish(
+				"textex2",
+				"test",
+				false, // mandatory
+				false, // immediate
+				amqp.Publishing{
+					ContentType: "text/plain",
+					Body:        []byte(body),
+				},
+			)
+		}
+	}
+	wg.Wait()
+	if count != messageCount {
+		lgr.Error(
+			"message count miss match",
+			zap.Int("count", count),
+			zap.Int("messageCount", messageCount),
+		)
+	}
+	manager.Close()
+}
+
+// func TestTemporaryQueue(t *testing.T) {
+// 	lgr, _ := zap.NewDevelopment()
+// 	manager := NewChannelManager(
+// 		"amqp://guest:guest@localhost:5672/",
+// 		lgr,
+// 	)
+//
+// 	bldr := NewChannelBuilder().WithExchange(
+// 		"textex2",
+// 		"topic",
+// 		true,
+// 		true,
+// 		false,
+// 		false,
+// 		map[string]interface{}{},
+// 	).WithQueue(
+// 		"tmp-000-0001",
+// 		false,
+// 		true,
+// 		true,
+// 		false,
+// 		nil,
+// 	).WithQueueBinding(
+// 		"tmp-000-0001",
+// 		"#",
+// 		"textex2",
+// 		false,
+// 		nil,
+// 	).WithConfirms(true)
+// 	chnl, err := manager.NewChannel(*bldr)
+// 	if err != nil {
+// 		lgr.Error(
+// 			"failed to create channel",
+// 			zap.Error(err),
+// 		)
+// 		t.FailNow()
+// 	}
+// 	messageCount := 10
+// 	cnfrms, err := chnl.GetConfirmsChannel()
+// 	if err != nil {
+// 		lgr.Error(
+// 			"failed to get confirms channel",
+// 			zap.Error(err),
+// 		)
+// 		t.FailNow()
+// 	}
+//
+// 	wg := sync.WaitGroup{}
+//
+// 	wg.Add(2)
+// 	go func() {
+// 		defer wg.Done()
+// 		for i := 0; i < messageCount; i++ {
+// 			ack := <-cnfrms
+// 			lgr.Info("confirm recieved")
+// 			if ack.Ack {
+// 			} else {
+// 				lgr.Error("failed delivery")
+// 			}
+// 		}
+// 	}()
+// 	count := 0
+// 	consumer, err := chnl.RegisterConsumer(
+// 		"tmp-000-0001",
+// 		"",
+// 		true,
+// 		false,
+// 		false,
+// 		false,
+// 		nil,
+// 	)
+// 	if err != nil {
+// 		lgr.Error(
+// 			"failed to register consumer",
+// 			zap.Error(err),
+// 		)
+// 		t.FailNow()
+// 	}
+// 	go func() {
+// 		defer wg.Done()
+//
+// 		for i := 0; i < messageCount; i++ {
+// 			msg := <-consumer
+// 			lgr.Info(
+// 				"message read",
+// 				zap.String("body", string(msg.Body)),
+// 			)
+// 			count++
+// 		}
+// 	}()
+//
+// 	body := "Hello World!"
+// 	for i := 0; i < messageCount; i++ {
+// 		lgr.Info("publishing...")
+// 		_, err = chnl.Publish(
+// 			"textex2",
+// 			"test",
+// 			false, // mandatory
+// 			false, // immediate
+// 			amqp.Publishing{
+// 				ContentType: "text/plain",
+// 				Body:        []byte(body),
+// 			},
+// 		)
+// 		for err != nil {
+// 			_, err = chnl.Publish(
+// 				"textex2",
+// 				"test",
+// 				false, // mandatory
+// 				false, // immediate
+// 				amqp.Publishing{
+// 					ContentType: "text/plain",
+// 					Body:        []byte(body),
+// 				},
+// 			)
+// 		}
+// 	}
+// 	wg.Wait()
+// 	if count != messageCount {
+// 		lgr.Error(
+// 			"message count miss match",
+// 			zap.Int("count", count),
+// 			zap.Int("messageCount", messageCount),
+// 		)
+// 	}
+// 	manager.Close()
+// }

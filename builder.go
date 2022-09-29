@@ -1,6 +1,8 @@
 package usago
 
 import (
+	"fmt"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -23,29 +25,51 @@ type queueOptions struct {
 	args       map[string]interface{}
 }
 
+type serverNamedQueueOptions struct {
+	internalName string
+	durable      bool
+	autoDelete   bool
+	exclusive    bool
+	noWait       bool
+	args         map[string]interface{}
+}
+
 type bindingOptions struct {
-	dest   string
-	key    string
-	source string
-	noWait bool
-	args   map[string]interface{}
+	destKey string
+	dest    string
+	key     string
+	source  string
+	noWait  bool
+	args    map[string]interface{}
 }
 
 type ChannelBuilder struct {
-	exchanges map[string]exchangeOptions
-	queues    map[string]queueOptions
-	qbindings []bindingOptions
-	ebindings []bindingOptions
-	confirms  bool
+	exchanges  map[string]exchangeOptions
+	queues     map[string]queueOptions
+	servQueues map[string]serverNamedQueueOptions
+	qbindings  []bindingOptions
+	ebindings  []bindingOptions
+	confirms   bool
+	keyNames   map[string]string
 }
 
 func NewChannelBuilder() *ChannelBuilder {
 	return &ChannelBuilder{
-		exchanges: map[string]exchangeOptions{},
-		queues:    map[string]queueOptions{},
-		qbindings: []bindingOptions{},
-		ebindings: []bindingOptions{},
+		exchanges:  map[string]exchangeOptions{},
+		queues:     map[string]queueOptions{},
+		servQueues: map[string]serverNamedQueueOptions{},
+		qbindings:  []bindingOptions{},
+		ebindings:  []bindingOptions{},
+		keyNames:   map[string]string{},
 	}
+}
+
+func (bldr *ChannelBuilder) GetKeydQueueName(key string) (string, error) {
+	q, ok := bldr.keyNames[key]
+	if !ok {
+		return "", fmt.Errorf("queue not found")
+	}
+	return q, nil
 }
 
 func (bldr *ChannelBuilder) WithExchange(
@@ -88,6 +112,25 @@ func (bldr *ChannelBuilder) WithQueue(
 	return bldr
 }
 
+func (bldr *ChannelBuilder) WithServerNamedQueue(
+	queueKey string,
+	durable,
+	autoDelete,
+	exclusive,
+	noWait bool,
+	args map[string]interface{},
+) *ChannelBuilder {
+	bldr.servQueues[queueKey] = serverNamedQueueOptions{
+		internalName: queueKey,
+		durable:      durable,
+		autoDelete:   autoDelete,
+		exclusive:    exclusive,
+		noWait:       noWait,
+		args:         args,
+	}
+	return bldr
+}
+
 func (bldr *ChannelBuilder) WithQueueBinding(
 	name,
 	key,
@@ -101,6 +144,23 @@ func (bldr *ChannelBuilder) WithQueueBinding(
 		source: exchange,
 		noWait: noWait,
 		args:   args,
+	})
+	return bldr
+}
+
+func (bldr *ChannelBuilder) WithServerNamedQueueBinding(
+	queueKey,
+	key,
+	exchange string,
+	noWait bool,
+	args map[string]interface{},
+) *ChannelBuilder {
+	bldr.qbindings = append(bldr.qbindings, bindingOptions{
+		destKey: queueKey,
+		key:     key,
+		source:  exchange,
+		noWait:  noWait,
+		args:    args,
 	})
 	return bldr
 }
@@ -166,9 +226,31 @@ func (bldr *ChannelBuilder) Build(
 			return nil, nil, err
 		}
 	}
+	for _, q := range bldr.servQueues {
+		n, err := ch.QueueDeclare(
+			"",
+			q.durable,
+			q.autoDelete,
+			q.exclusive,
+			q.noWait,
+			q.args,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		bldr.keyNames[q.internalName] = n.Name
+	}
 	for _, qb := range bldr.qbindings {
+		dest := qb.dest
+		if qb.destKey != "" {
+			ok := false
+			dest, ok = bldr.keyNames[qb.destKey]
+			if !ok {
+				return nil, nil, fmt.Errorf("queue key name not found")
+			}
+		}
 		err := ch.QueueBind(
-			qb.dest,
+			dest,
 			qb.key,
 			qb.source,
 			qb.noWait,

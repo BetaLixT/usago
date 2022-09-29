@@ -95,7 +95,39 @@ func (ctx *ChannelContext) RegisterConsumer(
 		return val.msgChan, nil
 	}
 	cnsmr := consumerContext{
-		queue:     queue,
+		queueName: queue,
+		consumer:  consumer,
+		autoAck:   autoAck,
+		exclusive: exclusive,
+		noLocal:   noLocal,
+		noWait:    noWait,
+		args:      args,
+		msgChan:   make(chan amqp.Delivery, 10),
+	}
+	err := ctx.initializeConsumer(&cnsmr)
+	if err != nil {
+		return cnsmr.msgChan, err
+	}
+	ctx.consumers[consumer] = &cnsmr
+	return cnsmr.msgChan, nil
+}
+
+func (ctx *ChannelContext) RegisterConsumerServerNamedQueue(
+	queueKey,
+	consumer string,
+	autoAck,
+	exclusive,
+	noLocal,
+	noWait bool,
+	args map[string]interface{},
+) (chan amqp.Delivery, error) {
+	val, exists := ctx.consumers[consumer]
+	if exists {
+		return val.msgChan, nil
+	}
+	cnsmr := consumerContext{
+		queueKey:  queueKey,
+		queueName: "",
 		consumer:  consumer,
 		autoAck:   autoAck,
 		exclusive: exclusive,
@@ -116,15 +148,25 @@ func (ctx *ChannelContext) initializeConsumer(consCtx *consumerContext) error {
 	var cons <-chan amqp.Delivery
 	var err error
 	err = ctx.pubRetr.Run(func() error {
+		queue := consCtx.queueName
+		if queue == "" {
+			var err error
+			queue, err = ctx.bldr.GetKeydQueueName(consCtx.queueKey)
+			if err != nil {
+				return err
+			}
+		}
+
 		ctx.lgr.Debug(
 			"initializing consumer",
 			zap.String("consumer", consCtx.consumer),
-			zap.String("queue", consCtx.queue),
+			zap.String("queue", queue),
 		)
 		ctx.chnlMtx.Lock()
 		defer ctx.chnlMtx.Unlock()
+		
 		cons, err = ctx.chnl.Consume(
-			consCtx.queue,
+			queue,
 			consCtx.consumer,
 			consCtx.autoAck,
 			consCtx.exclusive,
@@ -137,7 +179,7 @@ func (ctx *ChannelContext) initializeConsumer(consCtx *consumerContext) error {
 				"Failed to initialize consumer",
 				zap.Error(err),
 				zap.String("consumer", consCtx.consumer),
-				zap.String("queue", consCtx.queue),
+				zap.String("queue", queue),
 			)
 		}
 		return err
@@ -230,7 +272,7 @@ func (ctx *ChannelContext) closeHandler(channel chan *amqp.Error) {
 					"Failed to initialize consumer",
 					zap.Error(err),
 					zap.String("consumer", cnsmr.consumer),
-					zap.String("queue", cnsmr.queue),
+					zap.String("queue", cnsmr.queueName),
 				)
 				close(cnsmr.msgChan)
 				delete(ctx.consumers, key)
@@ -240,7 +282,8 @@ func (ctx *ChannelContext) closeHandler(channel chan *amqp.Error) {
 }
 
 type consumerContext struct {
-	queue     string
+	queueName string
+	queueKey  string
 	consumer  string
 	autoAck   bool
 	exclusive bool
