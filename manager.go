@@ -1,6 +1,7 @@
 package usago
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -89,17 +90,29 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 	mngr.nxtaccesscMtxs[id].Unlock()
 	defer mngr.connectionMtxs[id].Unlock()
 	err := mngr.connRetry.Run(func() error {
-		mngr.logger.Info("establishing connection...")
-		conn, err := amqp.Dial(mngr.url)
-		if err != nil {
-			mngr.logger.Warn(
-				"connection dial failed",
-				zap.Error(err),
-			)
+		erchan := make(chan error)
+		defer close(erchan)
+		go func() {
+			mngr.logger.Info("establishing connection...", zap.String("url", mngr.url))
+			conn, err := amqp.Dial(mngr.url)
+			if err != nil {
+				mngr.logger.Warn(
+					"connection dial failed",
+					zap.Error(err),
+				)
+				erchan <- err
+				return
+			}
+			mngr.connectionPool[id] = conn
+			erchan <- nil
+		}()
+		select {
+		case err := <-erchan:
 			return err
+		case <-time.After(10 * time.Second):
+			mngr.logger.Error("timed out trying to connect to dial rabbitmq")
+			return fmt.Errorf("timed out trying to connect to dial rabbitmq")
 		}
-		mngr.connectionPool[id] = conn
-		return nil
 	})
 	if err != nil {
 		mngr.logger.Error(
@@ -216,7 +229,7 @@ func (mngr *ChannelManager) NewChannel(
 		}
 		return newChannel, newConfirm, nil
 	}
-  
+
 	ctx := ChannelContext{
 		id:           mngr.getNextChannelId(),
 		bldr:         bldr,
