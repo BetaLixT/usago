@@ -91,8 +91,8 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 	defer mngr.connectionMtxs[id].Unlock()
 	err := mngr.connRetry.Run(func() error {
 		erchan := make(chan error)
-		defer close(erchan)
 		go func() {
+			defer close(erchan)
 			mngr.logger.Info("establishing connection...", zap.String("url", mngr.url))
 			conn, err := amqp.Dial(mngr.url)
 			if err != nil {
@@ -109,7 +109,7 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 		select {
 		case err := <-erchan:
 			return err
-		case <-time.After(10 * time.Second):
+		case <-time.After(120 * time.Second):
 			mngr.logger.Error("timed out trying to connect to dial rabbitmq")
 			return fmt.Errorf("timed out trying to connect to dial rabbitmq")
 		}
@@ -121,6 +121,8 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 		)
 		return err
 	}
+
+	mngr.logger.Info("re setup of close handlers...")
 	closeChan := make(chan *amqp.Error)
 	mngr.connectionPool[id].NotifyClose(closeChan)
 	mngr.closeChannels[id] = &closeChan
@@ -129,6 +131,7 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 		defer mngr.closewg.Done()
 		mngr.closeHandler(id, closeChan)
 	}()
+	mngr.logger.Info("connection re-established")
 	return nil
 }
 
