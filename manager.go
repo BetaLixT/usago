@@ -12,11 +12,11 @@ import (
 
 type ChannelManager struct {
 	url            string
-	connectionPool []*amqp.Connection
-	closeChannels  []*chan *amqp.Error
-	connectionMtxs []sync.Mutex
-	nxtaccesscMtxs []sync.Mutex
-	lowprirtycMtxs []sync.Mutex
+	connection     *amqp.Connection
+	closeChannel   *chan *amqp.Error
+	connectionMtx  sync.Mutex
+	nxtaccesscMtx  sync.Mutex
+	lowprirtycMtx  sync.Mutex
 	channelPool    map[int]*ChannelContext
 	logger         *zap.Logger
 	connRetry      retrier.Retrier
@@ -35,11 +35,6 @@ func NewChannelManager(
 	connectionCount := 1
 	mngr := &ChannelManager{
 		url:            url,
-		connectionPool: make([]*amqp.Connection, connectionCount),
-		closeChannels:  make([]*chan *amqp.Error, connectionCount),
-		connectionMtxs: make([]sync.Mutex, connectionCount),
-		nxtaccesscMtxs: make([]sync.Mutex, connectionCount),
-		lowprirtycMtxs: make([]sync.Mutex, connectionCount),
 		channelPool:    map[int]*ChannelContext{},
 		logger:         lgr,
 		connRetry: *retrier.New(retrier.ExponentialBackoff(
@@ -59,36 +54,28 @@ func NewChannelManager(
 	return mngr
 }
 
-func (mngr *ChannelManager) requestConnectionId() (int, error) {
-	id := 0 // TODO: change to route somehow between multiple
-	return id, nil
-}
-
-func (mngr *ChannelManager) getConnection(id int) (*amqp.Connection, error) {
+func (mngr *ChannelManager) getConnection() (*amqp.Connection, error) {
 	// We need to mutex lock this but ensure that re connections get
 	// priority over the mutex
-	mngr.lowprirtycMtxs[id].Lock()
-	mngr.nxtaccesscMtxs[id].Lock()
-	mngr.connectionMtxs[id].Lock()
-	mngr.nxtaccesscMtxs[id].Unlock()
-	defer mngr.connectionMtxs[id].Unlock()
-	defer mngr.lowprirtycMtxs[id].Unlock()
-	if id > len(mngr.connectionPool) {
-		return nil, NewConnectionMissingError()
-	}
-	conn := mngr.connectionPool[id]
-	if conn == nil {
-		return nil, NewConnectionMissingError()
-	}
-	return conn, nil
+	mngr.lowprirtycMtx.Lock()
+	mngr.logger.Info("low priority lock attained")
+	mngr.nxtaccesscMtx.Lock()
+	mngr.logger.Info("next access lock attained")
+	mngr.connectionMtx.Lock()
+	mngr.logger.Info("next connection lock attained")
+	mngr.nxtaccesscMtx.Unlock()
+	mngr.logger.Info("next access lock released")
+	defer mngr.connectionMtx.Unlock()
+	defer mngr.lowprirtycMtx.Unlock()	
+	return mngr.connection, nil
 }
 
 func (mngr *ChannelManager) establishConnection(id int) error {
 	mngr.logger.Info("about to establish connection...")
-	mngr.nxtaccesscMtxs[id].Lock()
-	mngr.connectionMtxs[id].Lock()
-	mngr.nxtaccesscMtxs[id].Unlock()
-	defer mngr.connectionMtxs[id].Unlock()
+	mngr.nxtaccesscMtx.Lock()
+	mngr.connectionMtx.Lock()
+	mngr.nxtaccesscMtx.Unlock()
+	defer mngr.connectionMtx.Unlock()
 	err := mngr.connRetry.Run(func() error {
 		erchan := make(chan error)
 		go func() {
@@ -103,7 +90,7 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 				erchan <- err
 				return
 			}
-			mngr.connectionPool[id] = conn
+			mngr.connection = conn
 			erchan <- nil
 		}()
 		select {
@@ -124,8 +111,8 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 
 	mngr.logger.Info("re setup of close handlers...")
 	closeChan := make(chan *amqp.Error)
-	mngr.connectionPool[id].NotifyClose(closeChan)
-	mngr.closeChannels[id] = &closeChan
+	mngr.connection.NotifyClose(closeChan)
+	mngr.closeChannel = &closeChan
 	mngr.closewg.Add(1)
 	go func() {
 		defer mngr.closewg.Done()
@@ -171,13 +158,9 @@ func (mngr *ChannelManager) NewChannel(
 	}
 	if mngr.closing {
 		return nil, NewChannelClosedError()
-	}
-	id, err := mngr.requestConnectionId()
-	if err != nil {
-		return nil, err
-	}
+	}	
 
-	conn, err := mngr.getConnection(id)
+	conn, err := mngr.getConnection()
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +186,7 @@ func (mngr *ChannelManager) NewChannel(
 		err := mngr.connRetry.Run(
 			func() error {
 				mngr.logger.Info("refreshing channel...")
-				conn, err := mngr.getConnection(id)
+				conn, err := mngr.getConnection()
 				if err != nil {
 					mngr.logger.Warn(
 						"failed to get connection while refreshing channel",
@@ -263,9 +246,7 @@ func (mngr *ChannelManager) Close() {
 		ch.close()
 	}
 	mngr.channelClsMtx.Unlock()
-	for _, conn := range mngr.connectionPool {
-		conn.Close()
-	}
+	mngr.connection.Close()
 	mngr.closewg.Wait()
 }
 
