@@ -67,6 +67,7 @@ func (mngr *ChannelManager) getConnection() (*amqp.Connection, error) {
 	mngr.logger.Info("next access lock released")
 	defer mngr.connectionMtx.Unlock()
 	defer mngr.lowprirtycMtx.Unlock()	
+	mngr.logger.Info("returning connection")
 	return mngr.connection, nil
 }
 
@@ -194,6 +195,7 @@ func (mngr *ChannelManager) NewChannel(
 					)
 					return err
 				}
+				mngr.logger.Info("retrieved connection")
 				newChannel, newConfirm, err = bldr.Build(conn)
 				// TODO: review errors
 				if err != nil {
@@ -203,6 +205,7 @@ func (mngr *ChannelManager) NewChannel(
 					)
 					return err
 				}
+				mngr.logger.Info("built channel")
 				return nil
 			},
 		)
