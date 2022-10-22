@@ -55,16 +55,16 @@ func NewChannelManager(
 }
 
 func (mngr *ChannelManager) establishConnection(id int) error {
-	mngr.logger.Info("attaining high priority connection lock")
+	mngr.logger.Debug("attaining high priority connection lock")
 	mngr.nxtaccesscMtx.Lock()
 	mngr.connectionMtx.Lock()
 	mngr.nxtaccesscMtx.Unlock()
 	defer mngr.connectionMtx.Unlock()
-	mngr.logger.Info("high priority connection lock attained")
+	mngr.logger.Debug("high priority connection lock attained")
 
 	// closing existing connection if it exists
 	if mngr.connection != nil {
-		mngr.logger.Info("ensuring existing connection is closed")
+		mngr.logger.Debug("ensuring existing connection is closed")
 		// timeout on close because I have trust issues now
 		clsdonechnl := make(chan error)
 		go func() {
@@ -78,12 +78,12 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 		}
 	}
 
-	mngr.logger.Info("about to establish connection...")
+	mngr.logger.Debug("about to establish connection...")
 	err := mngr.connRetry.Run(func() error {
 		erchan := make(chan error)
 		go func() {
 			defer close(erchan)
-			mngr.logger.Info("establishing connection...", zap.String("url", mngr.url))
+			mngr.logger.Debug("establishing connection...", zap.String("url", mngr.url))
 			conn, err := amqp.Dial(mngr.url)
 			if err != nil {
 				mngr.logger.Warn(
@@ -112,7 +112,7 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 		return err
 	}
 
-	mngr.logger.Info("re setup of close handlers...")
+	mngr.logger.Debug("re setup of close handlers...")
 	closeChan := make(chan *amqp.Error)
 	mngr.connection.NotifyClose(closeChan)
 	mngr.closeChannel = &closeChan
@@ -121,7 +121,7 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 		defer mngr.closewg.Done()
 		mngr.closeHandler(id, closeChan)
 	}()
-	mngr.logger.Info("connection re-established")
+	mngr.logger.Debug("connection re-established")
 	return nil
 }
 
@@ -136,7 +136,7 @@ func (mngr *ChannelManager) closeHandler(
 			zap.Error(err),
 		)
 	} else {
-		mngr.logger.Info("connection closed gracefully")
+		mngr.logger.Debug("connection closed gracefully")
 	}
 	if !mngr.closing {
 		err := mngr.establishConnection(id)
@@ -157,14 +157,14 @@ func (mngr *ChannelManager) rebuildChannel(
 ) (ch *amqp.Channel, cnf *chan amqp.Confirmation, err error) {
 	// We need to mutex lock this but ensure that re connections get
 	// priority over the mutex
-	mngr.logger.Info("attaining low priority connection lock")
+	mngr.logger.Debug("attaining low priority connection lock")
 	mngr.lowprirtycMtx.Lock()
 	mngr.nxtaccesscMtx.Lock()
 	mngr.connectionMtx.Lock()
 	mngr.nxtaccesscMtx.Unlock()
 	defer mngr.connectionMtx.Unlock()
 	defer mngr.lowprirtycMtx.Unlock()
-	mngr.logger.Info("low priority connection lock attained, building channel...")
+	mngr.logger.Debug("low priority connection lock attained, building channel...")
 	if mngr.connection == nil {
 		mngr.logger.Error("connection was nil")
 		return nil, nil, fmt.Errorf("connection was nil")
@@ -197,9 +197,9 @@ func (mngr *ChannelManager) NewChannel(
 		return nil, NewChannelClosedError()
 	}
 
-	mngr.logger.Info("building channel...")
+	mngr.logger.Debug("building channel...")
 	chnl, cnfrm, err := mngr.rebuildChannel(bldr)
-	mngr.logger.Info("channel successfully built")
+	mngr.logger.Debug("channel successfully built")
 	// TODO: review errors
 	if err != nil {
 		return nil, err
@@ -220,7 +220,7 @@ func (mngr *ChannelManager) NewChannel(
 		var newConfirm *chan amqp.Confirmation
 		err := mngr.connRetry.Run(
 			func() error {
-				mngr.logger.Info("refreshing channel...")
+				mngr.logger.Debug("refreshing channel...")
 				newChannel, newConfirm, err = mngr.rebuildChannel(bldr)
 				// TODO: review errors
 				if err != nil {
@@ -230,7 +230,7 @@ func (mngr *ChannelManager) NewChannel(
 					)
 					return err
 				}
-				mngr.logger.Info("built channel")
+				mngr.logger.Debug("built channel")
 				return nil
 			},
 		)

@@ -116,7 +116,7 @@ func (ctx *ChannelContext) initializeConsumer(consCtx *consumerContext) error {
 	var cons <-chan amqp.Delivery
 	var err error
 	err = ctx.pubRetr.Run(func() error {
-		ctx.lgr.Info(
+		ctx.lgr.Debug(
 			"initializing consumer",
 			zap.String("consumer", consCtx.consumer),
 			zap.String("queue", consCtx.queue),
@@ -140,21 +140,21 @@ func (ctx *ChannelContext) initializeConsumer(consCtx *consumerContext) error {
 				zap.String("queue", consCtx.queue),
 			)
 		}
-		ctx.lgr.Info("successfully initialized consumer")
+		ctx.lgr.Debug("successfully initialized consumer")
 		return err
 	})
 	if err != nil {
 		// caller must handle re-queuing of messages
 		return err
 	}
-	ctx.lgr.Info("setting up consumer proxy")
+	ctx.lgr.Debug("setting up consumer proxy")
 	ctx.workerWg.Add(1)
 	go func() {
 		defer ctx.workerWg.Done()
 		for msg := range cons {
 			consCtx.msgChan <- msg
 		}
-		ctx.lgr.Info("consumer proxy closed")
+		ctx.lgr.Debug("consumer proxy closed")
 	}()
 	return nil
 }
@@ -174,41 +174,41 @@ func (ctx *ChannelContext) refreshChannel() error {
 }
 
 func (ctx *ChannelContext) initNewChannel() {
-	ctx.lgr.Info("initializing new channel")
+	ctx.lgr.Debug("initializing new channel")
 	cls := make(chan *amqp.Error, 1)
 	ctx.chnl.NotifyClose(cls)
 	ctx.closeChan = &cls
 
 	ctx.workerWg.Add(1)
-	ctx.lgr.Info("setting up new close handler")
+	ctx.lgr.Debug("setting up new close handler")
 	go func() {
 		defer ctx.workerWg.Done()
 		ctx.closeHandler(*ctx.closeChan)
-		ctx.lgr.Info("close handler completed")
+		ctx.lgr.Debug("close handler completed")
 	}()
 	if ctx.confirmsChan != nil {
-		ctx.lgr.Info("setting up confirms proxy")
+		ctx.lgr.Debug("setting up confirms proxy")
 		ctx.workerWg.Add(1)
 		go func() {
 			defer ctx.workerWg.Done()
 			ctx.proxyConfirm(*ctx.confirmsChan)
-			ctx.lgr.Info("confirms proxy closed")
+			ctx.lgr.Debug("confirms proxy closed")
 		}()
 	}
-	ctx.lgr.Info("done initializing new channel")
+	ctx.lgr.Debug("done initializing new channel")
 }
 
 func (ctx *ChannelContext) close() {
-	ctx.lgr.Info("closing channel context")
+	ctx.lgr.Debug("closing channel context")
 	ctx.closing = true
 	ctx.chnl.Close()
 	close(ctx.confirmsProx)
 	for _, cnsmr := range ctx.consumers {
 		close(cnsmr.msgChan)
 	}
-	ctx.lgr.Info("waiting for pending jobs to close...")
+	ctx.lgr.Debug("waiting for pending jobs to close...")
 	ctx.workerWg.Wait()
-	ctx.lgr.Info("channel context closed")
+	ctx.lgr.Debug("channel context closed")
 }
 
 func (ctx *ChannelContext) proxyConfirm(channel chan amqp.Confirmation) {
@@ -240,10 +240,10 @@ func (ctx *ChannelContext) closeHandler(channel chan *amqp.Error) {
 		)
 		ctx.borked = true
 	} else {
-		ctx.lgr.Info("channel successfully refreshed")
-		ctx.lgr.Info("re-initializing consumers", zap.Int("consumerCount", len(ctx.consumers)))
+		ctx.lgr.Debug("channel successfully refreshed")
+		ctx.lgr.Debug("re-initializing consumers", zap.Int("consumerCount", len(ctx.consumers)))
 		for key, cnsmr := range ctx.consumers {
-			ctx.lgr.Info("initializing consumer", zap.String("consumer", cnsmr.consumer))
+			ctx.lgr.Debug("initializing consumer", zap.String("consumer", cnsmr.consumer))
 			err := ctx.initializeConsumer(cnsmr)
 			if err != nil {
 				ctx.lgr.Error(
