@@ -11,21 +11,21 @@ import (
 )
 
 type ChannelManager struct {
-	url            string
-	connection     *amqp.Connection
-	closeChannel   *chan *amqp.Error
-	connectionMtx  sync.Mutex
-	nxtaccesscMtx  sync.Mutex
-	lowprirtycMtx  sync.Mutex
-	channelPool    map[int]*ChannelContext
-	logger         *zap.Logger
-	connRetry      retrier.Retrier
-	closewg        sync.WaitGroup
-	closing        bool
-	borked         bool
-	channelSq      int
-	channelSqMtx   sync.Mutex
-	channelClsMtx  sync.Mutex
+	url           string
+	connection    *amqp.Connection
+	closeChannel  *chan *amqp.Error
+	connectionMtx sync.Mutex
+	nxtaccesscMtx sync.Mutex
+	lowprirtycMtx sync.Mutex
+	channelPool   map[int]*ChannelContext
+	logger        *zap.Logger
+	connRetry     retrier.Retrier
+	closewg       sync.WaitGroup
+	closing       bool
+	borked        bool
+	channelSq     int
+	channelSqMtx  sync.Mutex
+	channelClsMtx sync.Mutex
 }
 
 func NewChannelManager(
@@ -34,9 +34,9 @@ func NewChannelManager(
 ) *ChannelManager {
 	connectionCount := 1
 	mngr := &ChannelManager{
-		url:            url,
-		channelPool:    map[int]*ChannelContext{},
-		logger:         lgr,
+		url:         url,
+		channelPool: map[int]*ChannelContext{},
+		logger:      lgr,
 		connRetry: *retrier.New(retrier.ExponentialBackoff(
 			15,
 			100*time.Millisecond,
@@ -57,26 +57,43 @@ func NewChannelManager(
 func (mngr *ChannelManager) getConnection() (*amqp.Connection, error) {
 	// We need to mutex lock this but ensure that re connections get
 	// priority over the mutex
+	mngr.logger.Info("attaining low priority connection lock")
 	mngr.lowprirtycMtx.Lock()
-	mngr.logger.Info("low priority lock attained")
 	mngr.nxtaccesscMtx.Lock()
-	mngr.logger.Info("next access lock attained")
 	mngr.connectionMtx.Lock()
-	mngr.logger.Info("next connection lock attained")
 	mngr.nxtaccesscMtx.Unlock()
-	mngr.logger.Info("next access lock released")
 	defer mngr.connectionMtx.Unlock()
-	defer mngr.lowprirtycMtx.Unlock()	
+	defer mngr.lowprirtycMtx.Unlock()
+	mngr.logger.Info("low priority connection lock attained")
 	mngr.logger.Info("returning connection")
 	return mngr.connection, nil
 }
 
 func (mngr *ChannelManager) establishConnection(id int) error {
-	mngr.logger.Info("about to establish connection...")
+	mngr.logger.Info("attaining high priority connection lock")
 	mngr.nxtaccesscMtx.Lock()
 	mngr.connectionMtx.Lock()
 	mngr.nxtaccesscMtx.Unlock()
 	defer mngr.connectionMtx.Unlock()
+	mngr.logger.Info("high priority connection lock attained")
+	mngr.logger.Info("ensuring existing connection")
+
+	// closing existing connection if it exists
+	if mngr.connection != nil {
+		// timeout on close because I have trust issues now
+		clsdonechnl := make(chan error)
+		go func() {
+			defer close(clsdonechnl)
+			mngr.connection.Close()
+		}()
+		select {
+		case _, _ = <-clsdonechnl:
+		case <-time.After(120 * time.Second):
+			mngr.logger.Warn("timed out trying to connect to close connection")
+		}
+	}
+
+	mngr.logger.Info("about to establish connection...")
 	err := mngr.connRetry.Run(func() error {
 		erchan := make(chan error)
 		go func() {
@@ -159,7 +176,7 @@ func (mngr *ChannelManager) NewChannel(
 	}
 	if mngr.closing {
 		return nil, NewChannelClosedError()
-	}	
+	}
 
 	conn, err := mngr.getConnection()
 	if err != nil {
