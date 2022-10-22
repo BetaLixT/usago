@@ -54,21 +54,6 @@ func NewChannelManager(
 	return mngr
 }
 
-func (mngr *ChannelManager) getConnection() (*amqp.Connection, error) {
-	// We need to mutex lock this but ensure that re connections get
-	// priority over the mutex
-	mngr.logger.Info("attaining low priority connection lock")
-	mngr.lowprirtycMtx.Lock()
-	mngr.nxtaccesscMtx.Lock()
-	mngr.connectionMtx.Lock()
-	mngr.nxtaccesscMtx.Unlock()
-	defer mngr.connectionMtx.Unlock()
-	defer mngr.lowprirtycMtx.Unlock()
-	mngr.logger.Info("low priority connection lock attained")
-	mngr.logger.Info("returning connection")
-	return mngr.connection, nil
-}
-
 func (mngr *ChannelManager) establishConnection(id int) error {
 	mngr.logger.Info("attaining high priority connection lock")
 	mngr.nxtaccesscMtx.Lock()
@@ -76,10 +61,10 @@ func (mngr *ChannelManager) establishConnection(id int) error {
 	mngr.nxtaccesscMtx.Unlock()
 	defer mngr.connectionMtx.Unlock()
 	mngr.logger.Info("high priority connection lock attained")
-	mngr.logger.Info("ensuring existing connection")
 
 	// closing existing connection if it exists
 	if mngr.connection != nil {
+		mngr.logger.Info("ensuring existing connection is closed")
 		// timeout on close because I have trust issues now
 		clsdonechnl := make(chan error)
 		go func() {
@@ -167,6 +152,40 @@ func (mngr *ChannelManager) closeHandler(
 	}
 }
 
+func (mngr *ChannelManager) rebuildChannel(
+	bldr ChannelBuilder,
+) (ch *amqp.Channel, cnf *chan amqp.Confirmation, err error) {
+	// We need to mutex lock this but ensure that re connections get
+	// priority over the mutex
+	mngr.logger.Info("attaining low priority connection lock")
+	mngr.lowprirtycMtx.Lock()
+	mngr.nxtaccesscMtx.Lock()
+	mngr.connectionMtx.Lock()
+	mngr.nxtaccesscMtx.Unlock()
+	defer mngr.connectionMtx.Unlock()
+	defer mngr.lowprirtycMtx.Unlock()
+	mngr.logger.Info("low priority connection lock attained, building channel...")
+	if mngr.connection == nil {
+		mngr.logger.Error("connection was nil")
+		return nil, nil, fmt.Errorf("connection was nil")
+	}
+
+	donechnl := make(chan struct{})
+	// timeout since we noticed it's possible for build to lock up sometimes
+	go func() {
+		defer close(donechnl)
+		ch, cnf, err = bldr.Build(mngr.connection)
+	}()
+	select {
+	case _, _ = <-donechnl:
+		return
+	case <-time.After(120 * time.Second):
+		mngr.logger.Error("timed out while building channel")
+		ch, cnf, err = nil, nil, fmt.Errorf("timeout trying to build channel")
+		return
+	}
+}
+
 func (mngr *ChannelManager) NewChannel(
 	bldr ChannelBuilder,
 ) (*ChannelContext, error) {
@@ -178,11 +197,9 @@ func (mngr *ChannelManager) NewChannel(
 		return nil, NewChannelClosedError()
 	}
 
-	conn, err := mngr.getConnection()
-	if err != nil {
-		return nil, err
-	}
-	chnl, cnfrm, err := bldr.Build(conn)
+	mngr.logger.Info("building channel...")
+	chnl, cnfrm, err := mngr.rebuildChannel(bldr)
+	mngr.logger.Info("channel successfully built")
 	// TODO: review errors
 	if err != nil {
 		return nil, err
@@ -204,16 +221,7 @@ func (mngr *ChannelManager) NewChannel(
 		err := mngr.connRetry.Run(
 			func() error {
 				mngr.logger.Info("refreshing channel...")
-				conn, err := mngr.getConnection()
-				if err != nil {
-					mngr.logger.Warn(
-						"failed to get connection while refreshing channel",
-						zap.Error(err),
-					)
-					return err
-				}
-				mngr.logger.Info("retrieved connection")
-				newChannel, newConfirm, err = bldr.Build(conn)
+				newChannel, newConfirm, err = mngr.rebuildChannel(bldr)
 				// TODO: review errors
 				if err != nil {
 					mngr.logger.Warn(
