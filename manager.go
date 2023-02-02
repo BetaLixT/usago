@@ -188,6 +188,7 @@ func (mngr *ChannelManager) rebuildChannel(
 
 func (mngr *ChannelManager) NewChannel(
 	bldr ChannelBuilder,
+	statusHooks []StateUpdate,
 ) (*ChannelContext, error) {
 	// TODO: no connection scenario
 	if mngr.borked {
@@ -261,8 +262,12 @@ func (mngr *ChannelManager) NewChannel(
 			retrier.DefaultClassifier{},
 		),
 		consumers: map[string]*consumerContext{},
+
+		// - channel state
+		onChannelStateUpdate: statusHooks,
 	}
 	ctx.initNewChannel()
+	ctx.setChannelState(true)
 	mngr.channelPool[ctx.id] = &ctx
 	return &ctx, nil
 }

@@ -12,6 +12,7 @@ type requestChannel func(
 	bldr ChannelBuilder,
 ) (*amqp.Channel, *chan amqp.Confirmation, error)
 
+type StateUpdate func(bool)
 type ChannelContext struct {
 	id           int
 	bldr         ChannelBuilder
@@ -27,6 +28,12 @@ type ChannelContext struct {
 	borked       bool
 	pubRetr      retrier.Retrier
 	consumers    map[string]*consumerContext
+
+	// - channel state
+	channelStateMtx sync.Mutex
+	channelState bool
+	onChannelStateUpdate []StateUpdate
+
 }
 
 /*
@@ -222,13 +229,23 @@ func (ctx *ChannelContext) proxyConfirm(channel chan amqp.Confirmation) {
 	}
 }
 
+func (ctx *ChannelContext) setChannelState(state bool) {
+	ctx.channelStateMtx.Lock()
+	defer ctx.channelStateMtx.Unlock()
+	ctx.channelState = state
+	for idx := range ctx.onChannelStateUpdate {
+		ctx.onChannelStateUpdate[idx](state)
+	}
+}
+
 func (ctx *ChannelContext) closeHandler(channel chan *amqp.Error) {
 	cherr, _ := <-channel
+	ctx.setChannelState(false)
 	if cherr != nil {
 		ctx.lgr.Warn("channel was closed with error", zap.Error(cherr))
 	} else {
 		ctx.lgr.Warn("channel closed without errors")
-	}
+	}	
 	if ctx.closing {
 		return
 	}
@@ -256,6 +273,7 @@ func (ctx *ChannelContext) closeHandler(channel chan *amqp.Error) {
 				delete(ctx.consumers, key)
 			}
 		}
+		ctx.setChannelState(true)
 	}
 }
 

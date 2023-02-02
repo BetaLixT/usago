@@ -33,7 +33,14 @@ func TestPublishSimple(t *testing.T) {
 		false,
 		nil,
 	)
-	chnl, err := manager.NewChannel(*bldr)
+	chnl, err := manager.NewChannel(
+		*bldr,
+		[]StateUpdate{
+			func(b bool) {
+				lgr.Info("state updated", zap.Bool("state", b))
+			},
+		},
+	)
 	if err != nil {
 		lgr.Error(
 			"failed to create channel",
@@ -76,7 +83,14 @@ func TestPublishAck(t *testing.T) {
 		false,
 		nil,
 	).WithConfirms(true)
-	chnl, err := manager.NewChannel(*bldr)
+	chnl, err := manager.NewChannel(
+		*bldr,
+		[]StateUpdate{
+			func(b bool) {
+				lgr.Info("state updated", zap.Bool("state", b))
+			},
+		},
+	)
 	if err != nil {
 		lgr.Error(
 			"failed to create channel",
@@ -158,7 +172,14 @@ func TestConsumer(t *testing.T) {
 		false,
 		nil,
 	).WithConfirms(true)
-	chnl, err := manager.NewChannel(*bldr)
+	chnl, err := manager.NewChannel(
+		*bldr,
+		[]StateUpdate{
+			func(b bool) {
+				lgr.Info("state updated", zap.Bool("state", b))
+			},
+		},
+	)
 	if err != nil {
 		lgr.Error(
 			"failed to create channel",
@@ -177,7 +198,7 @@ func TestConsumer(t *testing.T) {
 	}
 
 	wg := sync.WaitGroup{}
-	
+
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -207,7 +228,7 @@ func TestConsumer(t *testing.T) {
 		)
 		t.FailNow()
 	}
-	go func () {
+	go func() {
 		defer wg.Done()
 
 		for i := 0; i < messageCount; i++ {
@@ -272,7 +293,14 @@ func TestDelayedPub(t *testing.T) {
 		false,
 		nil,
 	).WithConfirms(true)
-	chnl, err := manager.NewChannel(*bldr)
+	chnl, err := manager.NewChannel(
+		*bldr,
+		[]StateUpdate{
+			func(b bool) {
+				lgr.Info("state updated", zap.Bool("state", b))
+			},
+		},
+	)
 	if err != nil {
 		lgr.Error(
 			"failed to create channel",
